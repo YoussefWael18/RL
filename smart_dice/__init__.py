@@ -12,6 +12,14 @@ from smart_dice.envs.board_config import (
 )
 from smart_dice.envs.smart_dice_env import SmartDiceEnv
 from smart_dice.baselines.bfs import BFSResult, bfs_shortest_path, solve_bfs
+from smart_dice.training import (
+    determine_convergence,
+    evaluate_agent,
+    extract_action_from_agent,
+    train_q_learning,
+    train_sarsa,
+    EpisodeMetricsCallback,
+)
 
 __all__ = [
     "BoardConfig",
@@ -26,4 +34,10 @@ __all__ = [
     "BFSResult",
     "bfs_shortest_path",
     "solve_bfs",
+    "determine_convergence",
+    "evaluate_agent",
+    "extract_action_from_agent",
+    "train_q_learning",
+    "train_sarsa",
+    "EpisodeMetricsCallback",
 ]
