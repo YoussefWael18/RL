@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "smart-dice-rl"
+version = "0.1.0"
+description = "Smart Dice Board Game Reinforcement Learning Environment and Baselines"
+authors = [{ name = "RL Project Team" }]
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "gymnasium>=1.0.0",
+    "numpy>=1.24.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
