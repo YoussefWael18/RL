@@ -8,11 +8,7 @@ from smart_dice.envs.board_config import (
     BOARD_CONFIGS,
     get_board_config,
 )
-from smart_dice.envs.smart_dice_env import (
-    SmartDiceEnv,
-    DiscreteActionSpace,
-    DiscreteObservationSpace,
-)
+from smart_dice.envs.smart_dice_env import SmartDiceEnv
 
 __all__ = [
     "BoardConfig",
@@ -22,6 +18,4 @@ __all__ = [
     "BOARD_CONFIGS",
     "get_board_config",
     "SmartDiceEnv",
-    "DiscreteActionSpace",
-    "DiscreteObservationSpace",
 ]

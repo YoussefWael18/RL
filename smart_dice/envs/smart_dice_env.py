@@ -9,49 +9,27 @@ from gymnasium import spaces
 from smart_dice.envs.board_config import BoardConfig, BOARD_CONFIG_30, get_board_config
 
 
-class DiscreteActionSpace(spaces.Discrete):
-    """Discrete action space for dice values 1 through 6.
-
-    Inherits from gymnasium.spaces.Discrete with n=6 and start=1, while
-    supporting flexible equality with standard Discrete(6) spaces.
-    """
-
-    def __init__(self, seed: Optional[int] = None) -> None:
-        super().__init__(n=6, start=1, seed=seed)
-
-    def __eq__(self, other: Any) -> bool:
-        if isinstance(other, spaces.Discrete) and other.n == 6:
-            return True
-        return super().__eq__(other)
-
-
-class DiscreteObservationSpace(spaces.Discrete):
-    """Discrete observation space representing board positions 1 through N.
-
-    Inherits from gymnasium.spaces.Discrete with n=N and start=1, while
-    supporting flexible equality with standard Discrete(N) spaces.
-    """
-
-    def __init__(self, n: int, seed: Optional[int] = None) -> None:
-        super().__init__(n=n, start=1, seed=seed)
-
-    def __eq__(self, other: Any) -> bool:
-        if isinstance(other, spaces.Discrete) and other.n == self.n:
-            return True
-        return super().__eq__(other)
-
-
 class SmartDiceEnv(gym.Env):
     """Smart Dice Board Game Gymnasium Environment.
 
-    A controllable board game where an agent chooses a dice roll (1 to 6)
-    to navigate from square 1 to square N on a board containing snakes and ladders.
+    A controllable board game where an agent chooses an action in {0, 1, 2, 3, 4, 5}
+    which maps to dice values 1 through 6:
+        dice_value = action + 1
 
-    State:
-        Current square position on the board, an integer in {1, 2, ..., N}.
+    State / Observation Space:
+        `gymnasium.spaces.Discrete(N + 1)`
+        The agent's current square position is an integer in {1, 2, ..., N}.
+        Index 0 is unused. `observation_space.contains(obs)` is True for all valid positions.
 
-    Actions:
-        Discrete choice of dice roll: {1, 2, 3, 4, 5, 6}.
+    Action Space:
+        `gymnasium.spaces.Discrete(6)`
+        Valid actions are integers in {0, 1, 2, 3, 4, 5}.
+        - action 0 -> dice value 1
+        - action 1 -> dice value 2
+        - action 2 -> dice value 3
+        - action 3 -> dice value 4
+        - action 4 -> dice value 5
+        - action 5 -> dice value 6
 
     Reward Structure:
         - Reach the final square N: +100
@@ -61,7 +39,7 @@ class SmartDiceEnv(gym.Env):
         - Invalid move beyond board (target > N): -10 (agent stays in place, episode continues)
 
     Termination:
-        - Episode terminates when reaching square N.
+        - Episode terminates when reaching square N (via normal move, ladder, or snake).
         - Episode truncates when step count reaches max_steps.
     """
 
@@ -115,11 +93,9 @@ class SmartDiceEnv(gym.Env):
 
         self.render_mode = render_mode
 
-        # Define action space: discrete choices 1..6
-        self.action_space = DiscreteActionSpace()
-
-        # Define observation space: board squares 1..N
-        self.observation_space = DiscreteObservationSpace(self.n)
+        # Standard Gymnasium spaces: Discrete(6) and Discrete(N + 1)
+        self.action_space = spaces.Discrete(6)
+        self.observation_space = spaces.Discrete(self.n + 1)
 
         # Environment state variables
         self.current_pos: int = 1
@@ -143,6 +119,7 @@ class SmartDiceEnv(gym.Env):
         info: Dict[str, Any] = {
             "target_square": 1,
             "final_square": 1,
+            "dice_value": 0,
             "invalid_move": False,
             "ladder_applied": False,
             "snake_applied": False,
@@ -152,26 +129,28 @@ class SmartDiceEnv(gym.Env):
         if self.render_mode == "human":
             self.render()
 
-        return self.current_pos, info
+        return int(self.current_pos), info
 
     def step(self, action: Union[int, Any]) -> Tuple[int, float, bool, bool, Dict[str, Any]]:
         """Execute one dice roll action.
 
         Args:
-            action: Selected dice roll value in {1, 2, 3, 4, 5, 6}.
+            action: Action in {0, 1, 2, 3, 4, 5}.
+                    Maps internally via: dice_value = action + 1.
 
         Returns:
             Tuple of (observation, reward, terminated, truncated, info).
         """
         # Validate action
         action_int = int(action)
-        if action_int < 1 or action_int > 6:
+        if action_int < 0 or action_int > 5:
             raise ValueError(
-                f"Invalid action {action}. Expected dice value in {{1, 2, 3, 4, 5, 6}}."
+                f"Invalid action {action}. Expected action in {{0, 1, 2, 3, 4, 5}} (mapping to dice 1..6)."
             )
 
+        dice_value = action_int + 1
         self._step_count += 1
-        target_square = self.current_pos + action_int
+        target_square = self.current_pos + dice_value
 
         invalid_move = False
         ladder_applied = False
@@ -184,22 +163,30 @@ class SmartDiceEnv(gym.Env):
             reward = self.REWARD_INVALID
             invalid_move = True
         elif target_square == self.n:
-            # Reached goal
+            # Reached goal directly
             final_square = self.n
             reward = self.REWARD_GOAL
             terminated = True
         elif target_square in self.ladders:
             # Landed on ladder
             final_square = self.ladders[target_square]
-            reward = self.REWARD_LADDER
             ladder_applied = True
             if final_square == self.n:
+                final_square = self.n
+                reward = self.REWARD_GOAL
                 terminated = True
+            else:
+                reward = self.REWARD_LADDER
         elif target_square in self.snakes:
             # Landed on snake
             final_square = self.snakes[target_square]
-            reward = self.REWARD_SNAKE
             snake_applied = True
+            if final_square == self.n:
+                final_square = self.n
+                reward = self.REWARD_GOAL
+                terminated = True
+            else:
+                reward = self.REWARD_SNAKE
         else:
             # Normal square
             final_square = target_square
@@ -211,6 +198,7 @@ class SmartDiceEnv(gym.Env):
         info: Dict[str, Any] = {
             "target_square": target_square,
             "final_square": final_square,
+            "dice_value": dice_value,
             "invalid_move": invalid_move,
             "ladder_applied": ladder_applied,
             "snake_applied": snake_applied,
@@ -220,7 +208,7 @@ class SmartDiceEnv(gym.Env):
         if self.render_mode == "human":
             self.render()
 
-        return self.current_pos, reward, terminated, truncated, info
+        return int(self.current_pos), float(reward), bool(terminated), bool(truncated), info
 
     def render(self) -> Optional[str]:
         """Render the current board state in ASCII format."""
@@ -231,7 +219,6 @@ class SmartDiceEnv(gym.Env):
             status += " (GOAL REACHED!)"
         lines.append(status)
 
-        # Overview of active elements
         ladder_strs = [f"{s}->{e}" for s, e in sorted(self.ladders.items())]
         snake_strs = [f"{s}->{e}" for s, e in sorted(self.snakes.items())]
         lines.append(f"Ladders: {', '.join(ladder_strs)}")

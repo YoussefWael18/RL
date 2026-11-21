@@ -29,7 +29,8 @@ def run_bfs_for_board(board_id: str, verbose: bool = True) -> None:
         print(f"  Shortest Path Length (Dice Rolls): {result.shortest_path_length}")
         print(f"  Cumulative Path Reward:            {result.total_reward:.1f}")
         print(f"  States Visited Count in BFS:       {result.visited_states_count}")
-        print(f"  Action Sequence:                   {result.actions}")
+        print(f"  Action Sequence (0..5):            {result.actions}")
+        print(f"  Dice Rolls (1..6):                 {result.dice_values}")
         print(f"  State Trajectory:                  {result.states}")
         print(f"\n  Step-by-step Execution:")
         for t in result.transitions:
@@ -43,7 +44,7 @@ def run_bfs_for_board(board_id: str, verbose: bool = True) -> None:
             else:
                 details = f"square {t.to_state}"
             print(
-                f"    Step {t.step:2d}: Pos {t.from_state:3d} + Roll {t.action} -> {details:38s} | Reward: {t.reward:+6.1f} {type_tag}"
+                f"    Step {t.step:2d}: Pos {t.from_state:3d} | Action {t.action} (Dice {t.dice_value}) -> {details:38s} | Reward: {t.reward:+6.1f} {type_tag}"
             )
         print(f"  Environment Verification: SUCCESS (reached square {states[-1]}, reward={actual_reward:.1f})")
         print(f"{'='*70}")

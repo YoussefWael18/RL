@@ -15,13 +15,19 @@ def test_bfs_finds_valid_shortest_path(config):
     assert result.shortest_path_length > 0
     assert result.shortest_path_length <= config.n
     assert len(result.actions) == result.shortest_path_length
+    assert len(result.dice_values) == result.shortest_path_length
     assert len(result.states) == result.shortest_path_length + 1
     assert result.states[0] == 1
     assert result.states[-1] == config.n
 
-    # All actions must be within [1, 6]
+    # All actions must be within [0, 5]
     for a in result.actions:
-        assert 1 <= a <= 6
+        assert 0 <= a <= 5
+
+    # All dice values must be action + 1
+    for a, d in zip(result.actions, result.dice_values):
+        assert d == a + 1
+        assert 1 <= d <= 6
 
     # Verify execution inside an actual environment
     env = SmartDiceEnv(config=config)
@@ -34,15 +40,16 @@ def test_bfs_finds_valid_shortest_path(config):
 
 def test_bfs_optimality_on_toy_board():
     """Verify that BFS finds the optimal minimum number of moves on a simple board."""
-    # Board with N=10, ladder at 2 -> 9
-    # From 1, roll 1 -> land on 2 -> climb to 9. From 9, roll 1 -> land on 10 (goal).
-    # Minimal moves = 2.
     from smart_dice.envs.board_config import BoardConfig
 
+    # Board with N=10, ladder at 2 -> 9
+    # From 1, action 0 (dice 1) -> land on 2 -> climb to 9.
+    # From 9, action 0 (dice 1) -> land on 10 (goal).
     toy_cfg = BoardConfig(n=10, snakes={}, ladders={2: 9}, name="toy_board")
     res = bfs_shortest_path(toy_cfg)
     assert res.shortest_path_length == 2
-    assert res.actions == [1, 1]
+    assert res.actions == [0, 0]
+    assert res.dice_values == [1, 1]
     assert res.states == [1, 9, 10]
     # Reward: step 1 (ladder +20), step 2 (goal +100) -> total 120
     assert res.total_reward == 120.0

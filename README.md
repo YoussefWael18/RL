@@ -12,8 +12,13 @@ The Smart Dice Board Game is modeled as a Markov Decision Process (MDP) on a boa
 
 - **Start Position**: Square $1$.
 - **Goal Position**: Square $N$. Reaching square $N$ terminates the episode.
-- **Controllable Action Space**: The agent chooses its dice roll value $a \in \{1, 2, 3, 4, 5, 6\}$ represented via `gymnasium.spaces.Discrete(6)`.
-- **State / Observation Space**: Current board position $s \in \{1, 2, \dots, N\}$ represented via `gymnasium.spaces.Discrete(N)`.
+- **Action Space**: `gymnasium.spaces.Discrete(6)`
+  - Standard 0-indexed actions: $a \in \{0, 1, 2, 3, 4, 5\}$
+  - Internally mapped to dice values: $\text{dice\_value} = a + 1$ (values $1$ through $6$)
+  - Fully compatible with Stable-Baselines3 and standard RL frameworks.
+- **State / Observation Space**: `gymnasium.spaces.Discrete(N + 1)`
+  - Current board position $s \in \{1, 2, \dots, N\}$
+  - Square 0 is unused. `env.observation_space.contains(obs)` is `True` after `reset()` and on every `step()`.
 - **Max-Steps Limit**: Avoids infinite loops by setting `truncated = True` when the step limit is reached.
 - **Deterministic Seeded Resets**: `reset(seed=...)` allows deterministic and reproducible rollouts.
 
@@ -21,21 +26,22 @@ The Smart Dice Board Game is modeled as a Markov Decision Process (MDP) on a boa
 
 | Event / Outcome | Reward | Description |
 | :--- | :---: | :--- |
-| **Reach Final Square ($N$)** | `+100` | Reaching square $N$ directly or through a move ends the episode (`terminated = True`). |
+| **Reach Final Square ($N$)** | `+100` | Reaching square $N$ directly or through a ladder/snake ends the episode (`terminated = True`). |
 | **Land on Ladder** | `+20` | Landing on the base of a ladder moves the agent forward to the ladder's top. |
 | **Land on Snake** | `-20` | Landing on the head of a snake moves the agent backward to the snake's tail. |
 | **Normal Move** | `-1` | Landing on a regular square. Penalizes excessive rolls. |
-| **Invalid Move ($s + a > N$)** | `-10` | Moving beyond $N$ is invalid: position stays unchanged, episode continues (`terminated = False`). |
+| **Invalid Move ($s + \text{dice} > N$)** | `-10` | Moving beyond $N$ is invalid: position stays unchanged, episode continues (`terminated = False`). |
 
 ### Transition Rules
 
-Given current position $s$ and chosen dice action $a \in \{1, \dots, 6\}$:
-1. Target square: $s_{target} = s + a$.
-2. If $s_{target} > N$: invalid move. Agent remains at $s$, reward is $-10$, `invalid_move = True`.
-3. If $s_{target} == N$: goal reached. Agent moves to $N$, reward is $+100$, `terminated = True`.
-4. If $s_{target}$ is a ladder base: agent climbs to ladder top $L_{end} > s_{target}$, reward is $+20$, `ladder_applied = True`.
-5. If $s_{target}$ is a snake head: agent slides to snake tail $S_{end} < s_{target}$, reward is $-20$, `snake_applied = True`.
-6. Otherwise: agent advances to $s_{target}$, reward is $-1$.
+Given current position $s$ and chosen action $a \in \{0, \dots, 5\}$:
+1. Dice value: $\text{dice\_value} = a + 1$.
+2. Target square: $s_{target} = s + \text{dice\_value}$.
+3. If $s_{target} > N$: invalid move. Agent remains at $s$, reward is $-10$, `invalid_move = True`.
+4. If $s_{target} == N$: goal reached. Agent moves to $N$, reward is $+100$, `terminated = True`.
+5. If $s_{target}$ is a ladder base: agent climbs to ladder top $L_{end} > s_{target}$. If $L_{end} == N$, reward is $+100$ and `terminated = True`; otherwise reward is $+20$, `ladder_applied = True`.
+6. If $s_{target}$ is a snake head: agent slides to snake tail $S_{end} < s_{target}$. If $S_{end} == N$, reward is $+100$ and `terminated = True`; otherwise reward is $-20$, `snake_applied = True`.
+7. Otherwise: agent advances to $s_{target}$, reward is $-1$.
 
 ---
 
@@ -75,15 +81,15 @@ pip install -e .
 
 ```python
 import gymnasium as gym
-from smart_dice import SmartDiceEnv, get_board_config
+from smart_dice import SmartDiceEnv
 
 # Load Board 30
 env = SmartDiceEnv(config="30")
 obs, info = env.reset(seed=42)
-print(f"Starting position: {obs}")
+print(f"Starting position: {obs}")  # 1
 
-# Step with dice roll = 2 (lands on 3 -> climbs ladder to 12)
-obs, reward, terminated, truncated, info = env.step(2)
+# Action 1 corresponds to dice value 2 (1 + 2 = 3 -> climbs ladder to 12)
+obs, reward, terminated, truncated, info = env.step(1)
 print(f"New position: {obs}, Reward: {reward}, Info: {info}")
 ```
 
@@ -98,13 +104,18 @@ pytest -v
 ```
 
 The test suite validates:
+- Observation space containment after `reset()` and on every `step()` (`env.observation_space.contains(obs)`)
+- Valid action space is `Discrete(6)` with actions `0..5`
+- Action mapping: action 0 means dice 1, action 5 means dice 6
+- Ladder and snake transitions landing exactly on $N$ correctly terminate the episode
+- Stable-Baselines3 compliance via `check_env` and a smoke test PPO training run
 - Normal movement (-1 reward, correct position update)
 - Ladder transitions (+20 reward, forward move, `ladder_applied=True`)
 - Snake transitions (-20 reward, backward move, `snake_applied=True`)
 - Invalid moves beyond $N$ (-10 reward, state unchanged, non-terminating)
 - Goal termination at $N$ (+100 reward, `terminated=True`)
 - Deterministic seeded resets & reproducibility
-- Validation of all three board configurations (bounds, disjointness, correct counts)
+- Validation of all three board configurations
 - BFS shortest path optimality and execution verification
 - Random rollout execution across all three boards
 
@@ -118,14 +129,6 @@ Evaluate random rollouts on all three boards:
 python run_random_rollout.py --board all --episodes 50
 ```
 
-Or run on a specific board:
-
-```bash
-python run_random_rollout.py --board 30 --episodes 100
-python run_random_rollout.py --board 50 --episodes 100
-python run_random_rollout.py --board 100 --episodes 100
-```
-
 ---
 
 ## 7. Running the BFS Shortest-Path Baseline
@@ -135,14 +138,6 @@ Compute the minimum-roll shortest path and optimal deterministic trajectory on a
 ```bash
 python run_bfs.py --board all
 ```
-
-Or for a specific board:
-
-```bash
-python run_bfs.py --board 30
-```
-
-The script outputs the minimum number of rolls, step-by-step state and ladder transitions, total cumulative reward along the optimal path, and automatically verifies that running the actions in `SmartDiceEnv` reaches square $N$.
 
 ---
 
@@ -160,7 +155,7 @@ The script outputs the minimum number of rolls, step-by-step state and ladder tr
 │       ├── random_rollout.py   # Random policy evaluation script
 │       └── run_bfs.py          # BFS baseline runner
 ├── tests/
-│   ├── test_env.py             # Unit tests for dynamics, rewards, transitions
+│   ├── test_env.py             # Unit tests for dynamics, rewards, transitions, SB3
 │   ├── test_configs.py         # Tests for board sizes, snakes, ladders
 │   ├── test_bfs.py             # Tests for BFS solver on all boards
 │   └── test_rollout.py         # Tests for random rollout runs
