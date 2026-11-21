@@ -2,56 +2,60 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 import numpy as np
-import gymnasium as gym
 
 from smart_dice.envs.smart_dice_env import SmartDiceEnv
 
 
 def determine_convergence(
-    episode_rewards: List[float],
-    episode_successes: List[float],
+    checkpoints: Sequence[Tuple[int, float]],
+    bfs_optimal_moves: int,
     window: int = 50,
-    min_success_rate: float = 0.95,
-    min_avg_reward: float = 50.0,
-    reward_stability_ratio: float = 0.90,
+    rolling_window: int = 5,
 ) -> Optional[int]:
-    """Determine the convergence episode based on rolling window performance.
+    """Return the training episode at the start of the first sustained qualifying streak.
 
-    Convergence Criterion:
-        An agent is declared converged at episode E if, over the preceding `window`
-        episodes (e.g., 50 episodes):
-        1. Success Rate >= min_success_rate (at least 95% of games reach square N)
-        2. Moving Average Return >= min_avg_reward (positive expected return)
-        3. Moving Average Return >= reward_stability_ratio * max_achieved_return
-           (performance is within 10% of the peak rolling average)
-
-    Returns:
-        The 1-based episode index of convergence, or None if criterion is not met.
+    Each checkpoint is a pair of training episode and greedy evaluation move count.
+    A full rolling mean must be at most the BFS distance plus the larger of one
+    move or ten percent for `window` consecutive checkpoints.
     """
-    if len(episode_rewards) < window:
-        return None
+    if window < 1 or rolling_window < 1:
+        raise ValueError("Convergence and rolling windows must be positive")
 
-    max_rolling_reward = -float("inf")
-    for ep in range(window, len(episode_rewards) + 1):
-        win_rewards = episode_rewards[ep - window : ep]
-        win_success = episode_successes[ep - window : ep]
-
-        avg_r = float(np.mean(win_rewards))
-        avg_s = float(np.mean(win_success))
-
-        if avg_r > max_rolling_reward:
-            max_rolling_reward = avg_r
-
-        if (
-            avg_s >= min_success_rate
-            and avg_r >= min_avg_reward
-            and avg_r >= reward_stability_ratio * max_rolling_reward
-        ):
-            return ep
-
+    move_limit = bfs_optimal_moves + max(1, 0.10 * bfs_optimal_moves)
+    streak = 0
+    for index in range(rolling_window - 1, len(checkpoints)):
+        recent = checkpoints[index - rolling_window + 1 : index + 1]
+        mean_moves = sum(moves for _, moves in recent) / rolling_window
+        streak = streak + 1 if mean_moves <= move_limit else 0
+        if streak == window:
+            return checkpoints[index - window + 1][0]
     return None
+
+
+class GreedyPolicyEvaluator:
+    """Record periodic greedy rollouts on a separate deterministic board."""
+
+    def __init__(
+        self, env: SmartDiceEnv, bfs_optimal_moves: int, every_episodes: int, seed: int = 42
+    ) -> None:
+        if every_episodes < 1:
+            raise ValueError("Evaluation interval must be positive")
+        self.env = env
+        self.bfs_optimal_moves = bfs_optimal_moves
+        self.every_episodes = every_episodes
+        self.seed = seed
+        self.checkpoints: List[Tuple[int, float]] = []
+
+    def record(self, agent_or_policy: Any, episode: int) -> None:
+        if episode % self.every_episodes == 0:
+            result = evaluate_agent(agent_or_policy, self.env, num_episodes=1, seed=self.seed)
+            moves = result["avg_moves"] if result["success_rate"] == 100.0 else float("inf")
+            self.checkpoints.append((episode, moves))
+
+    def get_convergence_episode(self, window: int) -> Optional[int]:
+        return determine_convergence(self.checkpoints, self.bfs_optimal_moves, window=window)
 
 
 def extract_action_from_agent(

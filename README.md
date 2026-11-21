@@ -56,18 +56,16 @@ Because ladders grant $+20$ and snakes penalize $-20$, certain snake/ladder arra
 The primary training driver is located at [`notebooks/phase2_training.ipynb`](notebooks/phase2_training.ipynb).
 
 ### Notebook Highlights
-- **Self-Contained & Kaggle-Ready**: Uses relative paths and `/kaggle/working` with automatic dependency installation.
-- **Execution Modes**:
-  - `SMOKE_TEST = True`: Quick end-to-end verification (< 1 minute).
-  - `SMOKE_TEST = False`: Full training mode.
+- **Kaggle setup.** Upload the notebook and run all cells. It includes the Smart Dice package source and installs missing Python dependencies from PyPI. Enable Kaggle Internet access if the kernel needs to install dependencies.
+- **Execution modes.** The notebook defaults to full training with `SMOKE_TEST = False`. Set it to `True` for a short end-to-end check.
 - **Five Algorithms Trained & Compared**:
   1. **Tabular Q-Learning**: Off-policy TD control learning optimal action values.
   2. **Tabular SARSA**: On-policy TD control learning cautious policies around snakes.
   3. **Deep Q-Network (DQN)**: Deep value-based learning with experience replay.
   4. **Proximal Policy Optimization (PPO)**: On-policy actor-critic with clipped surrogate loss.
   5. **Advantage Actor-Critic (A2C)**: Synchronous actor-critic baseline.
-- **Deterministic BFS Baseline**: Solves each board analytically to provide the true optimal reference.
-- **Artifacts Saved to `/kaggle/working/artifacts`** (or `./artifacts`):
+- **BFS baseline.** Finds the minimum number of moves for each board. Every five training episodes, a greedy policy checkpoint is evaluated against the BFS move count. Convergence requires a five-checkpoint rolling mean within the larger of one move or 10% of that count for `CONV_WINDOW` consecutive checkpoints.
+- **Artifacts.** On Kaggle the notebook saves the following files under `/kaggle/working/artifacts`. Local runs use `./artifacts`.
   - Model checkpoints (`.npy` for tabular, `.zip` for SB3 models)
   - `results_summary.csv`
   - Plots:
@@ -79,30 +77,30 @@ The primary training driver is located at [`notebooks/phase2_training.ipynb`](no
 
 ---
 
-## 4. Benchmark Results Summary
+## 4. Historical Smoke-Test Results
 
-Results obtained from the unified evaluation pipeline:
+These numbers are from an earlier smoke test and are for pipeline verification only. The original convergence values used a previous criterion and have been omitted. Run the notebook in its default full-training mode to generate the benchmark table and plots.
 
-| Board | Algorithm | Avg Moves | Success Rate (%) | Avg Cumulative Reward | Convergence Episode |
-| :--- | :--- | :---: | :---: | :---: | :---: |
-| **Board 30** | **BFS (Optimal Baseline)** | **3.0** | **100.0%** | **+140.0** | N/A (Analytical) |
-| Board 30 | Tabular Q-Learning | 3.00 | 100.0% | +140.00 | 50 |
-| Board 30 | Tabular SARSA | 3.00 | 100.0% | +140.00 | 50 |
-| Board 30 | SB3 DQN | 5.00 | 100.0% | +138.00 | Concurred |
-| Board 30 | SB3 PPO | 3.00 | 100.0% | +140.00 | Concurred |
-| Board 30 | SB3 A2C | 5.00 | 100.0% | +138.00 | Concurred |
-| **Board 50** | **BFS (Optimal Baseline)** | **4.0** | **100.0%** | **+160.0** | N/A (Analytical) |
-| Board 50 | Tabular Q-Learning | 4.00 | 100.0% | +160.00 | 50 |
-| Board 50 | Tabular SARSA | 4.00 | 100.0% | +160.00 | 50 |
-| Board 50 | SB3 DQN | 6.00 | 100.0% | +158.00 | Concurred |
-| Board 50 | SB3 PPO | 4.00 | 100.0% | +160.00 | Concurred |
-| Board 50 | SB3 A2C | 11.00 | 100.0% | +111.00 | Concurred |
-| **Board 100** | **BFS (Optimal Baseline)** | **7.0** | **100.0%** | **+157.0** | N/A (Analytical) |
-| Board 100 | Tabular Q-Learning | 7.00 | 100.0% | +157.00 | 50 |
-| Board 100 | Tabular SARSA | 7.00 | 100.0% | +157.00 | 50 |
-| Board 100 | SB3 DQN | 10.00 | 100.0% | +154.00 | Concurred |
-| Board 100 | SB3 PPO | 10.00 | 100.0% | +154.00 | Concurred |
-| Board 100 | SB3 A2C | 19.00 | 100.0% | +145.00 | Concurred |
+| Board | Algorithm | Avg Moves | Success Rate (%) | Avg Cumulative Reward |
+| :--- | :--- | :---: | :---: | :---: |
+| **Board 30** | **BFS (Optimal Baseline)** | **3.0** | **100.0%** | **+140.0** |
+| Board 30 | Tabular Q-Learning | 3.00 | 100.0% | +140.00 |
+| Board 30 | Tabular SARSA | 3.00 | 100.0% | +140.00 |
+| Board 30 | SB3 DQN | 5.00 | 100.0% | +138.00 |
+| Board 30 | SB3 PPO | 3.00 | 100.0% | +140.00 |
+| Board 30 | SB3 A2C | 5.00 | 100.0% | +138.00 |
+| **Board 50** | **BFS (Optimal Baseline)** | **4.0** | **100.0%** | **+160.0** |
+| Board 50 | Tabular Q-Learning | 4.00 | 100.0% | +160.00 |
+| Board 50 | Tabular SARSA | 4.00 | 100.0% | +160.00 |
+| Board 50 | SB3 DQN | 6.00 | 100.0% | +158.00 |
+| Board 50 | SB3 PPO | 4.00 | 100.0% | +160.00 |
+| Board 50 | SB3 A2C | 11.00 | 100.0% | +111.00 |
+| **Board 100** | **BFS (Optimal Baseline)** | **7.0** | **100.0%** | **+157.0** |
+| Board 100 | Tabular Q-Learning | 7.00 | 100.0% | +157.00 |
+| Board 100 | Tabular SARSA | 7.00 | 100.0% | +157.00 |
+| Board 100 | SB3 DQN | 10.00 | 100.0% | +154.00 |
+| Board 100 | SB3 PPO | 10.00 | 100.0% | +154.00 |
+| Board 100 | SB3 A2C | 19.00 | 100.0% | +145.00 |
 
 ---
 

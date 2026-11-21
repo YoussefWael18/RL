@@ -3,17 +3,19 @@
 from __future__ import annotations
 
 from typing import List, Optional
-import numpy as np
 from stable_baselines3.common.callbacks import BaseCallback
 
-from smart_dice.training.evaluator import determine_convergence
+from smart_dice.training.evaluator import GreedyPolicyEvaluator
 
 
 class EpisodeMetricsCallback(BaseCallback):
     """Callback for tracking episode rewards, moves, and successes during SB3 training."""
 
-    def __init__(self, verbose: int = 0) -> None:
+    def __init__(
+        self, verbose: int = 0, *, greedy_evaluator: Optional[GreedyPolicyEvaluator] = None
+    ) -> None:
         super().__init__(verbose)
+        self.greedy_evaluator = greedy_evaluator
         self.episode_rewards: List[float] = []
         self.episode_moves: List[int] = []
         self.episode_success: List[float] = []
@@ -33,14 +35,11 @@ class EpisodeMetricsCallback(BaseCallback):
             self.episode_rewards.append(self._curr_reward)
             self.episode_moves.append(self._curr_moves)
 
-            # Check termination vs truncation from info
-            infos = self.locals.get("infos", [{}])
-            info = infos[0] if len(infos) > 0 else {}
-            # Success is defined as landing on final square N
-            final_sq = info.get("final_square", 0)
-            target_sq = info.get("target_square", 0)
-            is_goal = bool(final_sq == getattr(self.training_env.envs[0], "n", -1) or target_sq == getattr(self.training_env.envs[0], "n", -1))
-            self.episode_success.append(1.0 if is_goal else 0.0)
+            # Smart Dice only terminates upon reaching the goal.
+            info = self.locals["infos"][0]
+            self.episode_success.append(0.0 if info.get("TimeLimit.truncated", False) else 1.0)
+            if self.greedy_evaluator is not None:
+                self.greedy_evaluator.record(self.model, len(self.episode_moves))
 
             self._curr_reward = 0.0
             self._curr_moves = 0
@@ -48,4 +47,6 @@ class EpisodeMetricsCallback(BaseCallback):
         return True
 
     def get_convergence_episode(self, window: int = 50) -> Optional[int]:
-        return determine_convergence(self.episode_rewards, self.episode_success, window=window)
+        if self.greedy_evaluator is None:
+            return None
+        return self.greedy_evaluator.get_convergence_episode(window=window)

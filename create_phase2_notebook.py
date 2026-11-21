@@ -1,9 +1,9 @@
 """Script to generate the Kaggle-ready phase2_training.ipynb notebook."""
 
-import json
-import os
+from pathlib import Path
 import nbformat as nbf
 
+ROOT = Path(__file__).resolve().parent
 nb = nbf.v4.new_notebook()
 
 # Metadata
@@ -24,8 +24,8 @@ It trains, evaluates, and compares **five reinforcement learning algorithms** ac
 ---
 
 ### Key Requirements Addressed:
-1. **Kaggle-Ready**: Uses `/kaggle/working` or relative working paths. Can run on a clean Kaggle GPU/CPU kernel or locally.
-2. **Deterministic Baseline**: Evaluates theoretical upper bounds using BFS on deterministic boards.
+1. **Kaggle-Ready**: Includes the Smart Dice package source. Run all cells on Kaggle or in a local Jupyter kernel.
+2. **Deterministic Baseline**: Finds the shortest path on each board using BFS.
 3. **Five RL Algorithms**:
    - Tabular Q-Learning (Off-policy TD)
    - Tabular SARSA (On-policy TD)
@@ -36,81 +36,93 @@ It trains, evaluates, and compares **five reinforcement learning algorithms** ac
 5. **Artifacts & Plots**: Saves all trained models, evaluation metrics CSV, and five publication-quality plots under `artifacts/` (or `/kaggle/working/artifacts`).
 """))
 
-# Cell 1: Dependencies & Environment Setup
-cells.append(nbf.v4.new_code_cell("""# Cell 1: Dependencies & Environment Setup
-import sys
+# Dependencies and locations
+cells.append(nbf.v4.new_code_cell("""from importlib.util import find_spec
+from pathlib import Path
 import os
+import subprocess
+import sys
 
-# Install required packages if running in a fresh Kaggle / Cloud environment
-try:
-    import stable_baselines3
-except ImportError:
-    print("Installing required dependencies...")
-    !pip install -q gymnasium stable-baselines3 torch matplotlib pandas tabulate
+missing = [
+    package for package in ("gymnasium", "stable_baselines3", "torch", "numpy", "matplotlib", "pandas")
+    if find_spec(package) is None
+]
+if missing:
+    subprocess.check_call([sys.executable, "-m", "pip", "install", *missing])
 
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import gymnasium as gym
+import torch
 
-# Setup Kaggle-friendly artifacts and base paths
-BASE_DIR = "/kaggle/working" if os.path.exists("/kaggle") else os.path.abspath(".")
-ARTIFACTS_DIR = os.path.join(BASE_DIR, "artifacts")
-os.makedirs(ARTIFACTS_DIR, exist_ok=True)
+# Small MLPs and single-environment rollouts run efficiently on one CPU thread.
+torch.set_num_threads(1)
 
-# Ensure smart_dice package is importable
-# 1. Check local repository or Kaggle dataset paths
-repo_candidates = [
-    ".",
-    "..",
-    os.path.join(BASE_DIR, "RL"),
-    "/kaggle/input/smart-dice-rl",
-    "/kaggle/working/smart-dice-rl",
-]
-for p in repo_candidates:
-    if os.path.isdir(os.path.join(p, "smart_dice")):
-        abs_p = os.path.abspath(p)
-        if abs_p not in sys.path:
-            sys.path.insert(0, abs_p)
-        break
+KAGGLE_WORKING_DIR = Path("/kaggle/working")
+WORKING_DIR = KAGGLE_WORKING_DIR if KAGGLE_WORKING_DIR.is_dir() else Path.cwd()
+ARTIFACTS_DIR = WORKING_DIR / "artifacts"
+PACKAGE_DIR = WORKING_DIR / ".phase2_package"
+for directory in ("envs", "baselines", "training"):
+    (PACKAGE_DIR / "smart_dice" / directory).mkdir(parents=True, exist_ok=True)
+"""))
 
-try:
-    import smart_dice
-    from smart_dice import SmartDiceEnv, get_board_config, bfs_shortest_path
-    from smart_dice.training import (
-        train_q_learning,
-        train_sarsa,
-        evaluate_agent,
-        determine_convergence,
-        EpisodeMetricsCallback,
-    )
-    print("Successfully imported smart_dice library!")
-except ImportError:
-    print("smart_dice not found in path. Cloning or initializing directly...")
-    # Standalone Kaggle fallback: clone repository if needed
-    !git clone https://github.com/pccv-rl/smart-dice-rl.git {BASE_DIR}/smart-dice-repo 2>/dev/null || true
-    if os.path.isdir(f"{BASE_DIR}/smart-dice-repo/smart_dice"):
-        sys.path.insert(0, f"{BASE_DIR}/smart-dice-repo")
-        from smart_dice import SmartDiceEnv, get_board_config, bfs_shortest_path
-        from smart_dice.training import train_q_learning, train_sarsa, evaluate_agent, determine_convergence, EpisodeMetricsCallback
-        print("smart_dice imported from cloned repository!")
-    else:
-        raise RuntimeError("Could not find smart_dice package. Please attach the repo or clone it.")
+cells.append(nbf.v4.new_markdown_cell(
+    "## Embedded Smart Dice package\n\n"
+    "The following cells write the package used by this notebook into the working directory."
+))
+for module in (
+    "smart_dice/__init__.py",
+    "smart_dice/envs/__init__.py",
+    "smart_dice/envs/board_config.py",
+    "smart_dice/envs/smart_dice_env.py",
+    "smart_dice/baselines/__init__.py",
+    "smart_dice/baselines/bfs.py",
+    "smart_dice/training/__init__.py",
+    "smart_dice/training/evaluator.py",
+    "smart_dice/training/tabular.py",
+    "smart_dice/training/callbacks.py",
+):
+    source = (ROOT / module).read_text(encoding="utf-8")
+    cells.append(nbf.v4.new_code_cell(f'%%writefile "{{PACKAGE_DIR}}/{module}"\n{source}'))
 
-print(f"Artifacts output directory: {ARTIFACTS_DIR}")
+cells.append(nbf.v4.new_code_cell("""# Kaggle sanity check
+sys.path.insert(0, str(PACKAGE_DIR))
+import smart_dice
+from smart_dice import SmartDiceEnv, get_board_config, bfs_shortest_path
+from smart_dice.training import (
+    EpisodeMetricsCallback,
+    evaluate_agent,
+    train_q_learning,
+    train_sarsa,
+)
+from smart_dice.training.evaluator import GreedyPolicyEvaluator
+
+assert Path(smart_dice.__file__).resolve() == (PACKAGE_DIR / "smart_dice" / "__init__.py").resolve()
+ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
+
+sanity_env = SmartDiceEnv(config=30)
+sanity_actions = iter(bfs_shortest_path(get_board_config(30)).actions)
+sanity = evaluate_agent(lambda _: next(sanity_actions), sanity_env, num_episodes=1)
+assert sanity["success_rate"] == 100.0
+sanity_env.close()
+
+print(f"Imported Smart Dice from {smart_dice.__file__}")
+print(f"Sanity rollout reached the goal in {sanity['avg_moves']:.0f} moves.")
+print(f"Artifacts directory: {ARTIFACTS_DIR}")
 """))
 
 # Cell 2: Runtime Configuration & Constants
 cells.append(nbf.v4.new_code_cell("""# Cell 2: Runtime Constants & Execution Modes
-# Set SMOKE_TEST = True for quick verification (< 1 minute total runtime)
+# Set SMOKE_TEST = True for a short end-to-end check
 # Set SMOKE_TEST = False for full training runs
-SMOKE_TEST = True
+SMOKE_TEST = False
 
 # Reproducibility
 SEED = 42
 
 # Board sizes to evaluate
 BOARDS = [30, 50, 100]
+GREEDY_EVAL_INTERVAL = 5
 
 # Hyperparameter schedules based on mode
 if SMOKE_TEST:
@@ -118,7 +130,7 @@ if SMOKE_TEST:
     TABULAR_EPISODES = 100
     SB3_TIMESTEPS = 2000
     EVAL_EPISODES = 20
-    CONV_WINDOW = 30
+    CONV_WINDOW = 3
 else:
     print(">>> RUNNING IN FULL TRAINING MODE <<<")
     TABULAR_EPISODES = 1500
@@ -130,28 +142,24 @@ print(f"Boards:             {BOARDS}")
 print(f"Tabular Episodes:   {TABULAR_EPISODES}")
 print(f"SB3 Timesteps:      {SB3_TIMESTEPS}")
 print(f"Eval Episodes:      {EVAL_EPISODES}")
-print(f"Convergence Window: {CONV_WINDOW}")
+print(f"Convergence Window: {CONV_WINDOW} consecutive evaluation checkpoints")
 print(f"Base Random Seed:   {SEED}")
 """))
 
 # Cell 3: Markdown - Convergence Criterion & Evaluation Methodology
-cells.append(nbf.v4.new_markdown_cell("""## Evaluation Methodology & Convergence Criterion
+cells.append(nbf.v4.new_markdown_cell(r"""## Evaluation and Convergence
 
-### 1. Shared Unified Evaluator (`evaluate_agent`)
-To ensure strict comparability across tabular and deep RL algorithms, all trained policies are evaluated through the exact same evaluation harness:
-- **Metrics Collected**:
-  - `Average Moves per Episode`: Mean steps taken to conclude an episode.
-  - `Success Rate (%)`: Percentage of episodes terminating at square $N$.
-  - `Average Cumulative Reward`: Mean total discounted/undiscounted return.
-  - `Standard Deviation of Reward`: Measure of policy stability and risk.
+The shared evaluator reports average moves, success rate, mean undiscounted return, and standard deviation of return. Final evaluation uses `EVAL_EPISODES` greedy rollouts per trained agent.
 
-### 2. Convergence Criterion Definition
-An agent is declared **converged** at episode $E$ if, over the sliding window $W$ (e.g. 50 episodes):
-1. **Success Criterion**: Rolling success rate $S_W \ge 95\%$ (the agent reliably reaches the goal).
-2. **Minimum Return Criterion**: Rolling average return $R_W \ge 50.0$ (consistently positive expected return).
-3. **Stability Criterion**: $R_W \ge 0.90 \times \max_{t \le E} R_t$ (performance has stabilized within 10% of its peak achieved rolling return).
+Every `GREEDY_EVAL_INTERVAL` completed training episodes, each algorithm runs a greedy rollout on a separate copy of the same board. One rollout per checkpoint is sufficient because each board and greedy policy are deterministic. A rollout that fails to reach the goal is assigned an infinite move count for convergence tracking.
 
-If these conditions are not satisfied by the end of training, the algorithm is classified as **"Not Converged"** (`None`).
+Starting with the fifth checkpoint, compute the rolling mean $\bar{m}$ across the latest five checkpoints. A checkpoint qualifies when the rolling mean stays within one move or 10% of the BFS shortest path length $m_{\mathrm{BFS}}$, using the larger allowance.
+
+$$
+\bar{m} \le m_{\mathrm{BFS}} + \max\left(1, 0.10 \times m_{\mathrm{BFS}}\right)
+$$
+
+The convergence episode is the training episode at the start of the first streak of `CONV_WINDOW` consecutive qualifying checkpoints. If the run ends before completing a qualifying streak, the table reports `Not Converged`.
 """))
 
 # Cell 4: Deterministic BFS Baseline
@@ -166,10 +174,18 @@ for b in BOARDS:
     print(f"Board {b:3d}: Shortest Path = {res.shortest_path_length} moves | Return = {res.total_reward:+.1f}")
     print(f"           Actions: {res.actions}")
     print(f"           Trajectory: {res.states}")
+
+def make_greedy_evaluator(board):
+    return GreedyPolicyEvaluator(
+        SmartDiceEnv(config=board),
+        bfs_results[board].shortest_path_length,
+        every_episodes=GREEDY_EVAL_INTERVAL,
+        seed=SEED,
+    )
 """))
 
 # Cell 5: Markdown - Algorithm 1: Tabular Q-Learning
-cells.append(nbf.v4.new_markdown_cell("""## 1. Tabular Q-Learning (Off-Policy TD Control)
+cells.append(nbf.v4.new_markdown_cell(r"""## 1. Tabular Q-Learning (Off-Policy TD Control)
 
 **Algorithm Summary**:
 Q-Learning is a model-free, off-policy temporal difference algorithm that learns the optimal state-action value function $Q^*(s, a)$ directly using the Bellman optimality equation:
@@ -197,6 +213,8 @@ for b in BOARDS:
         epsilon_min=0.05,
         epsilon_decay=0.995,
         seed=SEED,
+        greedy_evaluator=make_greedy_evaluator(b),
+        convergence_window=CONV_WINDOW,
     )
     
     # Save trained Q-table
@@ -218,7 +236,7 @@ for b in BOARDS:
 """))
 
 # Cell 7: Markdown - Algorithm 2: Tabular SARSA
-cells.append(nbf.v4.new_markdown_cell("""## 2. Tabular SARSA (On-Policy TD Control)
+cells.append(nbf.v4.new_markdown_cell(r"""## 2. Tabular SARSA (On-Policy TD Control)
 
 **Algorithm Summary**:
 SARSA (State-Action-Reward-State-Action) is an on-policy temporal difference control algorithm that updates action-values based on the action $a'$ actually selected by the current $\epsilon$-greedy behavior policy:
@@ -246,6 +264,8 @@ for b in BOARDS:
         epsilon_min=0.05,
         epsilon_decay=0.995,
         seed=SEED,
+        greedy_evaluator=make_greedy_evaluator(b),
+        convergence_window=CONV_WINDOW,
     )
     
     # Save trained Q-table
@@ -267,7 +287,7 @@ for b in BOARDS:
 """))
 
 # Cell 9: Markdown - Algorithm 3: Deep Q-Network (DQN)
-cells.append(nbf.v4.new_markdown_cell("""## 3. Deep Q-Network (DQN)
+cells.append(nbf.v4.new_markdown_cell(r"""## 3. Deep Q-Network (DQN)
 
 **Algorithm Summary**:
 Deep Q-Network (DQN) replaces tabular representations with a deep neural network to approximate $Q(s, a; \theta)$, utilizing an experience replay buffer to break sample correlations and a periodically frozen target network to stabilize temporal difference updates:
@@ -287,7 +307,7 @@ dqn_callbacks = {}
 for b in BOARDS:
     print(f"\\n--- Training SB3 DQN on Board {b} ({SB3_TIMESTEPS} timesteps) ---")
     env = SmartDiceEnv(config=b)
-    callback = EpisodeMetricsCallback()
+    callback = EpisodeMetricsCallback(greedy_evaluator=make_greedy_evaluator(b))
     
     model = DQN(
         "MlpPolicy",
@@ -302,6 +322,7 @@ for b in BOARDS:
         exploration_final_eps=0.05,
         target_update_interval=200,
         seed=SEED,
+        device="cpu",
         verbose=0,
     )
     
@@ -326,7 +347,7 @@ for b in BOARDS:
 """))
 
 # Cell 11: Markdown - Algorithm 4: Proximal Policy Optimization (PPO)
-cells.append(nbf.v4.new_markdown_cell("""## 4. Proximal Policy Optimization (PPO)
+cells.append(nbf.v4.new_markdown_cell(r"""## 4. Proximal Policy Optimization (PPO)
 
 **Algorithm Summary**:
 PPO is an on-policy actor-critic algorithm that maximizes a clipped surrogate objective to constrain policy updates within a trust region:
@@ -346,7 +367,7 @@ ppo_callbacks = {}
 for b in BOARDS:
     print(f"\\n--- Training SB3 PPO on Board {b} ({SB3_TIMESTEPS} timesteps) ---")
     env = SmartDiceEnv(config=b)
-    callback = EpisodeMetricsCallback()
+    callback = EpisodeMetricsCallback(greedy_evaluator=make_greedy_evaluator(b))
     
     model = PPO(
         "MlpPolicy",
@@ -357,6 +378,7 @@ for b in BOARDS:
         gamma=0.99,
         ent_coef=0.01,
         seed=SEED,
+        device="cpu",
         verbose=0,
     )
     
@@ -381,7 +403,7 @@ for b in BOARDS:
 """))
 
 # Cell 13: Markdown - Algorithm 5: Advantage Actor-Critic (A2C)
-cells.append(nbf.v4.new_markdown_cell("""## 5. Advantage Actor-Critic (A2C)
+cells.append(nbf.v4.new_markdown_cell(r"""## 5. Advantage Actor-Critic (A2C)
 
 **Algorithm Summary**:
 A2C is a synchronous, deterministic variant of Asynchronous Advantage Actor-Critic (A3C). It maintains an explicit policy (actor) and a state-value baseline (critic), updating network parameters using the estimated advantage:
@@ -401,7 +423,7 @@ a2c_callbacks = {}
 for b in BOARDS:
     print(f"\\n--- Training SB3 A2C on Board {b} ({SB3_TIMESTEPS} timesteps) ---")
     env = SmartDiceEnv(config=b)
-    callback = EpisodeMetricsCallback()
+    callback = EpisodeMetricsCallback(greedy_evaluator=make_greedy_evaluator(b))
     
     model = A2C(
         "MlpPolicy",
@@ -411,6 +433,7 @@ for b in BOARDS:
         gamma=0.99,
         ent_coef=0.01,
         seed=SEED,
+        device="cpu",
         verbose=0,
     )
     
@@ -440,7 +463,7 @@ cells.append(nbf.v4.new_markdown_cell("""## Comparative Analysis & Visualization
 Below we generate and save the required evaluation figures:
 1. `total_reward_vs_episodes.png`: Training return curves across episodes for all algorithms.
 2. `avg_moves_vs_episodes.png`: Episode length reduction across training.
-3. `success_rate_vs_episodes.png`: Success rate progression to 100%.
+3. `success_rate_vs_episodes.png`: Goal completion rates across training.
 4. `q_learning_vs_sarsa.png`: Direct comparison between off-policy Q-Learning and on-policy SARSA.
 5. `dqn_vs_ppo_vs_a2c.png`: Comparative analysis between Deep RL baselines.
 """))
@@ -448,8 +471,6 @@ Below we generate and save the required evaluation figures:
 # Cell 16: Generate Plots
 cells.append(nbf.v4.new_code_cell("""# Cell 16: Generate and Save All Required Plots
 def smooth_series(series, window=10):
-    if len(series) < window:
-        return series
     return pd.Series(series).rolling(window, min_periods=1).mean().values
 
 plt.style.use('seaborn-v0_8-whitegrid' if 'seaborn-v0_8-whitegrid' in plt.style.available else 'default')
@@ -468,7 +489,7 @@ for idx, b in enumerate(BOARDS):
         ax.plot(smooth_series(ppo_callbacks[b].episode_rewards), label="PPO", color="red", alpha=0.8)
     if len(a2c_callbacks[b].episode_rewards) > 0:
         ax.plot(smooth_series(a2c_callbacks[b].episode_rewards), label="A2C", color="purple", alpha=0.8)
-    ax.axhline(bfs_results[b].total_reward, color="black", linestyle="--", label="BFS Optimal")
+    ax.axhline(bfs_results[b].total_reward, color="black", linestyle="--", label="BFS Shortest Path Return")
     ax.set_title(f"Board {b} (N={b}): Total Reward", fontsize=13, fontweight="bold")
     ax.set_xlabel("Episode")
     ax.set_ylabel("Cumulative Return")
@@ -495,7 +516,7 @@ for idx, b in enumerate(BOARDS):
     ax.axhline(bfs_results[b].shortest_path_length, color="black", linestyle="--", label="BFS Shortest")
     ax.set_title(f"Board {b}: Moves per Episode", fontsize=13, fontweight="bold")
     ax.set_xlabel("Episode")
-    ax.set_ylabel("Steps to Goal")
+    ax.set_ylabel("Moves per Episode")
     ax.legend(loc="upper right", fontsize=9)
 plt.tight_layout()
 p2 = os.path.join(ARTIFACTS_DIR, "avg_moves_vs_episodes.png")
@@ -534,7 +555,7 @@ for idx, b in enumerate(BOARDS):
     ax = axes[idx]
     ax.plot(smooth_series(q_learning_histories[b]["rewards_history"]), label="Q-Learning Return", color="blue", linewidth=2)
     ax.plot(smooth_series(sarsa_histories[b]["rewards_history"]), label="SARSA Return", color="green", linewidth=2)
-    ax.axhline(bfs_results[b].total_reward, color="black", linestyle="--", label="BFS Optimal")
+    ax.axhline(bfs_results[b].total_reward, color="black", linestyle="--", label="BFS Shortest Path Return")
     ax.set_title(f"Q-Learning vs SARSA (Board {b})", fontsize=13, fontweight="bold")
     ax.set_xlabel("Episode")
     ax.set_ylabel("Moving Avg Return")
@@ -556,7 +577,7 @@ for idx, b in enumerate(BOARDS):
         ax.plot(smooth_series(ppo_callbacks[b].episode_rewards), label="PPO Return", color="red", linewidth=2)
     if len(a2c_callbacks[b].episode_rewards) > 0:
         ax.plot(smooth_series(a2c_callbacks[b].episode_rewards), label="A2C Return", color="purple", linewidth=2)
-    ax.axhline(bfs_results[b].total_reward, color="black", linestyle="--", label="BFS Optimal")
+    ax.axhline(bfs_results[b].total_reward, color="black", linestyle="--", label="BFS Shortest Path Return")
     ax.set_title(f"Deep RL: DQN vs PPO vs A2C (Board {b})", fontsize=13, fontweight="bold")
     ax.set_xlabel("Episode")
     ax.set_ylabel("Moving Avg Return")
@@ -641,13 +662,16 @@ for b in BOARDS:
     })
 
 summary_df = pd.DataFrame(rows)
+summary_df["Convergence Episode"] = summary_df["Convergence Episode"].replace("None", "Not Converged")
+run_mode = "Smoke Test" if SMOKE_TEST else "Full Run"
+summary_df.insert(0, "Run Mode", run_mode)
 
 # Save summary to artifacts CSV
 summary_csv = os.path.join(ARTIFACTS_DIR, "results_summary.csv")
 summary_df.to_csv(summary_csv, index=False)
 
 print("\\n" + "=" * 90)
-print("SMART DICE RL: FINAL ALGORITHM BENCHMARK SUMMARY")
+print(f"SMART DICE RL BENCHMARK SUMMARY ({run_mode})")
 print("=" * 90)
 try:
     from tabulate import tabulate
@@ -660,7 +684,7 @@ print(f"Summary table saved to: {summary_csv}")
 
 nb.cells = cells
 
-notebook_path = "/home/pccv/RL/notebooks/phase2_training.ipynb"
+notebook_path = ROOT / "notebooks" / "phase2_training.ipynb"
 with open(notebook_path, "w", encoding="utf-8") as f:
     nbf.write(nb, f)
 

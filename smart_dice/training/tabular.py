@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 import numpy as np
 
 from smart_dice.envs.smart_dice_env import SmartDiceEnv
-from smart_dice.training.evaluator import determine_convergence
+from smart_dice.training.evaluator import GreedyPolicyEvaluator
 
 
 def train_q_learning(
@@ -18,6 +18,9 @@ def train_q_learning(
     epsilon_min: float = 0.05,
     epsilon_decay: float = 0.995,
     seed: int = 42,
+    *,
+    greedy_evaluator: Optional[GreedyPolicyEvaluator] = None,
+    convergence_window: int = 50,
 ) -> Dict[str, Any]:
     """Train a tabular Q-Learning agent with epsilon-greedy exploration.
 
@@ -73,11 +76,16 @@ def train_q_learning(
         rewards_history.append(ep_reward)
         moves_history.append(ep_moves)
         success_history.append(1.0 if terminated else 0.0)
+        if greedy_evaluator is not None:
+            greedy_evaluator.record(q_table, ep + 1)
 
         # Decay epsilon
         epsilon = max(epsilon_min, epsilon * epsilon_decay)
 
-    conv_ep = determine_convergence(rewards_history, success_history)
+    conv_ep = (
+        greedy_evaluator.get_convergence_episode(window=convergence_window)
+        if greedy_evaluator is not None else None
+    )
 
     return {
         "q_table": q_table,
@@ -98,6 +106,9 @@ def train_sarsa(
     epsilon_min: float = 0.05,
     epsilon_decay: float = 0.995,
     seed: int = 42,
+    *,
+    greedy_evaluator: Optional[GreedyPolicyEvaluator] = None,
+    convergence_window: int = 50,
 ) -> Dict[str, Any]:
     """Train a tabular SARSA agent with on-policy epsilon-greedy exploration.
 
@@ -154,10 +165,15 @@ def train_sarsa(
         rewards_history.append(ep_reward)
         moves_history.append(ep_moves)
         success_history.append(1.0 if terminated else 0.0)
+        if greedy_evaluator is not None:
+            greedy_evaluator.record(q_table, ep + 1)
 
         epsilon = max(epsilon_min, epsilon * epsilon_decay)
 
-    conv_ep = determine_convergence(rewards_history, success_history)
+    conv_ep = (
+        greedy_evaluator.get_convergence_episode(window=convergence_window)
+        if greedy_evaluator is not None else None
+    )
 
     return {
         "q_table": q_table,
