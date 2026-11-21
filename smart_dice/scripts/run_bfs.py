@@ -56,7 +56,6 @@ def main() -> None:
         "--board",
         type=str,
         default="all",
-        choices=["all", "30", "50", "100", "board_30", "board_50", "board_100"],
         help="Board configuration to solve with BFS (default: all)",
     )
     args = parser.parse_args()

@@ -114,7 +114,6 @@ def main() -> None:
         "--board",
         type=str,
         default="all",
-        choices=["all", "30", "50", "100", "board_30", "board_50", "board_100"],
         help="Board configuration to evaluate (default: all)",
     )
     parser.add_argument(

@@ -59,6 +59,7 @@ class SmartDiceEnv(gym.Env):
         snakes: Optional[Dict[int, int]] = None,
         ladders: Optional[Dict[int, int]] = None,
         max_steps: Optional[int] = None,
+        allow_positive_reward_cycles: bool = False,
         render_mode: Optional[str] = None,
     ) -> None:
         """Initialize the SmartDiceEnv.
@@ -74,12 +75,16 @@ class SmartDiceEnv(gym.Env):
             self.snakes = dict(snakes) if snakes is not None else dict(resolved_config.snakes)
             self.ladders = dict(ladders) if ladders is not None else dict(resolved_config.ladders)
             self.max_steps = max_steps if max_steps is not None else resolved_config.max_steps
+            self.allow_positive_reward_cycles = (
+                allow_positive_reward_cycles or resolved_config.allow_positive_reward_cycles
+            )
             self.config_name = resolved_config.name
         else:
             self.n = n if n is not None else BOARD_CONFIG_30.n
             self.snakes = dict(snakes) if snakes is not None else dict(BOARD_CONFIG_30.snakes)
             self.ladders = dict(ladders) if ladders is not None else dict(BOARD_CONFIG_30.ladders)
             self.max_steps = max_steps if max_steps is not None else BOARD_CONFIG_30.max_steps
+            self.allow_positive_reward_cycles = allow_positive_reward_cycles
             self.config_name = "custom"
 
         # Validate configuration
@@ -89,6 +94,7 @@ class SmartDiceEnv(gym.Env):
             ladders=self.ladders,
             max_steps=self.max_steps,
             name=self.config_name,
+            allow_positive_reward_cycles=self.allow_positive_reward_cycles,
         )
 
         self.render_mode = render_mode
@@ -135,19 +141,22 @@ class SmartDiceEnv(gym.Env):
         """Execute one dice roll action.
 
         Args:
-            action: Action in {0, 1, 2, 3, 4, 5}.
+            action: Integer action in {0, 1, 2, 3, 4, 5}.
+                    Must be valid in self.action_space before conversion.
                     Maps internally via: dice_value = action + 1.
 
         Returns:
             Tuple of (observation, reward, terminated, truncated, info).
         """
-        # Validate action
-        action_int = int(action)
-        if action_int < 0 or action_int > 5:
+        # Validate action: check action_space containment before any casting.
+        # Specifically reject bools, floats, strings, negative values, and values above 5.
+        if isinstance(action, bool) or not self.action_space.contains(action):
             raise ValueError(
-                f"Invalid action {action}. Expected action in {{0, 1, 2, 3, 4, 5}} (mapping to dice 1..6)."
+                f"Invalid action {action!r} of type {type(action).__name__}. "
+                f"Expected integer action in {{0, 1, 2, 3, 4, 5}} belonging to self.action_space."
             )
 
+        action_int = int(action)
         dice_value = action_int + 1
         self._step_count += 1
         target_square = self.current_pos + dice_value

@@ -2,6 +2,7 @@
 
 import pytest
 import gymnasium as gym
+import numpy as np
 from stable_baselines3.common.env_checker import check_env
 from stable_baselines3 import PPO
 
@@ -64,11 +65,48 @@ def test_valid_actions_0_to_5():
     assert not env.action_space.contains(-1)
     assert not env.action_space.contains(6)
 
-    env.reset()
-    with pytest.raises(ValueError, match="Expected action in {0, 1, 2, 3, 4, 5}"):
-        env.step(-1)
-    with pytest.raises(ValueError, match="Expected action in {0, 1, 2, 3, 4, 5}"):
-        env.step(6)
+
+def test_reject_invalid_action_types_and_ranges(simple_env):
+    """Regression test: reject floats, strings, bools, negative values, and values above 5."""
+    simple_env.reset()
+
+    # Floats must be rejected
+    with pytest.raises(ValueError, match="Invalid action"):
+        simple_env.step(1.0)
+    with pytest.raises(ValueError, match="Invalid action"):
+        simple_env.step(0.0)
+    with pytest.raises(ValueError, match="Invalid action"):
+        simple_env.step(2.5)
+
+    # Strings must be rejected
+    with pytest.raises(ValueError, match="Invalid action"):
+        simple_env.step("0")
+    with pytest.raises(ValueError, match="Invalid action"):
+        simple_env.step("1")
+    with pytest.raises(ValueError, match="Invalid action"):
+        simple_env.step("invalid")
+
+    # Bools must be rejected
+    with pytest.raises(ValueError, match="Invalid action"):
+        simple_env.step(True)
+    with pytest.raises(ValueError, match="Invalid action"):
+        simple_env.step(False)
+
+    # Out-of-range integers
+    with pytest.raises(ValueError, match="Invalid action"):
+        simple_env.step(-1)
+    with pytest.raises(ValueError, match="Invalid action"):
+        simple_env.step(6)
+    with pytest.raises(ValueError, match="Invalid action"):
+        simple_env.step(100)
+
+    # Valid integers and numpy integers must be accepted
+    obs1, _, _, _, _ = simple_env.step(0)
+    assert obs1 == 2
+    obs2, _, _, _, _ = simple_env.step(np.int64(2))
+    assert obs2 == 5
+    obs3, _, _, _, _ = simple_env.step(np.int32(1))
+    assert obs3 == 7
 
 
 def test_action_dice_mapping(simple_env):
